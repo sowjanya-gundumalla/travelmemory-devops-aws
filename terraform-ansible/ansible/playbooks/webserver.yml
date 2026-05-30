@@ -1,0 +1,100 @@
+---
+- name: Setup Web Server
+  hosts: webserver
+  become: yes
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install Node.js dependencies
+      apt:
+        name:
+          - curl
+          - gnupg
+        state: present
+
+    - name: Add NodeSource repository for Node.js 18
+      shell: curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+      args:
+        creates: /etc/apt/sources.list.d/nodesource.list
+
+    - name: Install Node.js
+      apt:
+        name: nodejs
+        state: present
+        update_cache: yes
+
+    - name: Install PM2 globally
+      npm:
+        name: pm2
+        global: yes
+
+    - name: Install git
+      apt:
+        name: git
+        state: present
+
+    - name: Clone TravelMemory repository
+      git:
+        repo: https://github.com/UnpredictablePrashant/TravelMemory.git
+        dest: /home/ubuntu/TravelMemory
+        force: yes
+
+    - name: Install backend dependencies
+      npm:
+        path: /home/ubuntu/TravelMemory/backend
+
+    - name: Create backend .env file
+      copy:
+        dest: /home/ubuntu/TravelMemory/backend/.env
+        content: |
+          PORT=3000
+          MONGO_URI=mongodb://10.0.2.221:27017/travelmemory
+          JWT_SECRET=travelmemory_secret_key
+
+    - name: Start backend with PM2
+      shell: |
+        cd /home/ubuntu/TravelMemory/backend
+        pm2 start index.js --name travelmemory-backend
+        pm2 save
+      args:
+        chdir: /home/ubuntu/TravelMemory/backend
+
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+
+    - name: Configure Nginx reverse proxy
+      copy:
+        dest: /etc/nginx/sites-available/travelmemory
+        content: |
+          server {
+              listen 80;
+              location / {
+                  proxy_pass http://localhost:3000;
+                  proxy_http_version 1.1;
+                  proxy_set_header Upgrade $http_upgrade;
+                  proxy_set_header Connection 'upgrade';
+                  proxy_set_header Host $host;
+                  proxy_cache_bypass $http_upgrade;
+              }
+          }
+
+    - name: Enable Nginx site
+      file:
+        src: /etc/nginx/sites-available/travelmemory
+        dest: /etc/nginx/sites-enabled/travelmemory
+        state: link
+
+    - name: Remove default Nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Restart Nginx
+      service:
+        name: nginx
+        state: restarted
