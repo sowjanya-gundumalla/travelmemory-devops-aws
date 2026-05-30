@@ -132,3 +132,4 @@ dist
 .terraform.lock.hcl
 *.tfstate
 *.tfstate.backup
+*.pem
